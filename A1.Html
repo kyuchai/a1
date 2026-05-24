@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
+    <style> 
+        #mynetwork { width: 100%; height: 450px; border: 2px solid #444; border-radius: 12px; background: #000000; } 
+    </style>
+</head>
+<body class="bg-slate-50 p-8">
+    <div id="app" class="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow-xl">
+        <h1 class="text-2xl font-bold mb-4 text-slate-800">🎡 路徑規劃演示：權重與耗時全揭露</h1>
+        
+        <textarea v-model="jsonInput" class="w-full h-32 font-mono text-xs border rounded-lg p-2 mb-4 bg-slate-900 text-green-400"></textarea>
+        
+        <div class="flex gap-4 mb-6 items-center">
+            <input v-model="start" placeholder="起點" class="border rounded p-2 w-20">
+            <input v-model="t" placeholder="時間 t" class="border rounded p-2 w-24">
+            <button @click="execute" class="bg-indigo-600 text-white px-8 py-2 rounded-lg font-bold hover:bg-indigo-700">執行計算</button>
+        </div>
+
+        <div v-if="resultText" class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg shadow-sm">
+            <p class="font-bold text-blue-900">最佳路徑：{{ resultText }}</p>
+            <p class="text-blue-800 mt-2"><strong>運算明細：</strong> {{ explanation }}</p>
+            <p class="text-xs text-slate-500 mt-1">* 節點上方顯示停留時間，路徑上方顯示移動距離。</p>
+        </div>
+
+        <div id="mynetwork"></div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        createApp({
+            data() { return { 
+                jsonInput: '{"1": {"node_time": 20, "edges": {"2": 10, "5": 5}}, "2": {"node_time": 0, "edges": {"1": 10, "3": 10, "5": 4}}, "3": {"node_time": 10, "edges": {"1": 20, "2": 10, "4": 4}}, "4": {"node_time": 8, "edges": {"3": 4, "5": 20}}, "5": {"node_time": 30, "edges": {"1": 5, "2": 4, "4": 20}}}', 
+                start: '1', t: '69', resultText: '', explanation: '' 
+            }},
+            methods: {
+                calculateBestPath(graph, start, t_limit) {
+                    let best = {path: [], nodes: 0, time: 0, details: ""};
+                    function dfs(curr, time, visited, path, formula) {
+                        if (curr === start && path.length > 1) {
+                            if (visited.size > best.nodes) best = {path: [...path], nodes: visited.size, time: time, details: formula};
+                            return;
+                        }
+                        for (let n in graph[curr].edges) {
+                            let n_id = parseInt(n);
+                            let weight = graph[curr].edges[n];
+                            let node_time = visited.has(n_id) ? 0 : graph[n].node_time;
+                            let new_time = time + weight + node_time;
+                            if (new_time <= t_limit) {
+                                let next_visited = new Set(visited); next_visited.add(n_id);
+                                let next_formula = formula + ` + (${weight} + ${node_time})`;
+                                dfs(n_id, new_time, next_visited, [...path, n], next_formula);
+                            }
+                        }
+                    }
+                    dfs(start, graph[start].node_time, new Set([start]), [String(start)], `${graph[start].node_time}`);
+                    return best;
+                },
+                execute() {
+                    const graph = JSON.parse(this.jsonInput);
+                    const res = this.calculateBestPath(graph, parseInt(this.start), parseInt(this.t));
+                    
+                    this.resultText = res.path.length > 0 ? res.path.join(" → ") : "找不到路徑";
+                    this.explanation = res.path.length > 0 ? `${res.details} = ${res.time} (≦ ${this.t})` : "超過時間限制";
+
+                    const coords = { "1": {x:-300, y:-100}, "2": {x:300, y:-100}, "3": {x:0, y:-200}, "4": {x:0, y:200}, "5": {x:-300, y:100} };
+                    
+                    // 節點：同時顯示設施名稱與停留時間 (例如：設施 1\n(停留: 20))
+                    const nodes = new vis.DataSet(Object.keys(graph).map(id => ({
+                        id, label: `設施 ${id}\n(停留:${graph[id].node_time})`, ...coords[id], shape: 'dot', size: 35, 
+                        color: {background: '#FFD700', border: '#FFD700'}, font: {color: '#ffffff', size: 16, bold: true}
+                    })));
+
+                    const edges = new vis.DataSet();
+                    for(let id in graph) {
+                        for(let n in graph[id].edges) {
+                            let weight = graph[id].edges[n];
+                            let isPath = false;
+                            for(let i=0; i<res.path.length-1; i++) {
+                                if((res.path[i] == id && res.path[i+1] == n)) isPath = true;
+                            }
+                            
+                            edges.add({
+                                from: id, to: n, 
+                                label: weight.toString(), // 在線上直接標註權重
+                                font: {color: isPath ? '#0ABAB5' : '#ffffff', size: 20, background: '#000000', bold: true},
+                                color: isPath ? '#0ABAB5' : '#ffffff', 
+                                width: isPath ? 8 : 2
+                            });
+                        }
+                    }
+
+                    new vis.Network(document.getElementById('mynetwork'), {nodes, edges}, {
+                        physics: false, nodes: { fixed: true }
+                    });
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>
